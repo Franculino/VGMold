@@ -2,14 +2,9 @@
 #from __future__ import division, with_statement
 
 from copy import deepcopy
-#import cPickle
-#import matplotlib.pyplot as plt
 import numpy as np
 import cython
-#cimport physiology
 cimport numpy as np
-#cimport libc.stdio as stdio
-#from pylab import is_string_like
 
 __all__ = ['update_timestep','update_flow_and_v']
 
@@ -155,7 +150,6 @@ def update_flow_and_v(graph,invivo,vfList,vrbc):
 
 
 # # -----------------------------------------------------------------------------
-#
 def update_rbcFlowIn(graph):
         """Updates the flow and red blood cell velocity in all vessels
         INPUT: None

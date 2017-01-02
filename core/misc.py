@@ -5,7 +5,7 @@ import numpy as np
 from pylab import flatten
 import scipy as sp
 from scipy import (array, arccos, argmin, concatenate, dot, ones, mean, pi, 
-                   shape, unique, weave)
+                   shape, unique, weave,finfo)
 from scipy.linalg import norm
 from scipy.spatial import kdtree
 from scipy.interpolate import griddata
@@ -338,8 +338,8 @@ def intersection_plane_line(pP,nP,pL,vL):
     return np.array(newCoordsPoint)
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
-def make_graph_based_on_points(pL,G):
-    """creates a graph with the points given (for visualization in paraview)
+def make_pointGraph_based_on_points(pL,G):
+    """creates a point graph with the points given (for visualization in paraview)
     INPUT: pL: point list
            G: main Graph
     OUTPUT: new graph of points
@@ -354,6 +354,52 @@ def make_graph_based_on_points(pL,G):
 
     Gnew.vs['r']=r
     Gnew.vs['indexOrig']=indexOrig
+
+    return Gnew
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+def make_graph_based_on_points(eL,G):
+    """creates a graph with the edgeList given 
+    INPUT: eL: edge list
+           G: main Graph
+    OUTPUT: new graph of points
+    """
+
+    vertices=[]
+    edgeTuples=[]
+    for e in G.es[eL]:
+        vertices.append(e.source)
+        vertices.append(e.target)
+        edgeTuples.append(e.tuple)
+
+    vertices=np.unique(vertices)
+
+    Gnew=vgm.VascularGraph(len(vertices))
+    r=[]
+    indexOrig=[]
+    for i in vertices:
+        r.append(G.vs[i]['r'])
+        indexOrig.append(i)
+
+    Gnew.vs['r']=r
+    Gnew.vs['indexOrig']=indexOrig
+
+    edgeTuplesNew=[]
+    for tupleCurrent in edgeTuples:
+        edgeTuplesNew.append([Gnew.vs(indexOrig_eq=tupleCurrent[0]).indices[0],Gnew.vs(indexOrig_eq=tupleCurrent[1]).indices[0]])
+
+    Gnew.add_edges(edgeTuplesNew)
+    Gnew.es['indexOrig']=eL
+
+    for e in eL:
+        eNew=Gnew.es(indexOrig_eq=e).indices[0]
+        for attribute in G.es.attributes():
+            Gnew.es[eNew][attribute]=G.es[e][attribute]
+
+    for v in vertices:
+        vNew=Gnew.vs(indexOrig_eq=v).indices[0]
+        for attribute in G.vs.attributes():
+            Gnew.vs[vNew][attribute]=G.vs[v][attribute]
 
     return Gnew
 #------------------------------------------------------------------------------
@@ -467,7 +513,7 @@ def planePlots_paraview(G,edges,intersectionCoords,attribute,filename,interpMeth
     x=[]
     y=[]
     z=[]
-    for coord in coords:
+    for coord in intersectionCoords:
         x.append(coord[0])
         y.append(coord[1])
         z.append(coord[2])
@@ -524,24 +570,77 @@ def planePlots_paraview(G,edges,intersectionCoords,attribute,filename,interpMeth
     return grid_d1,grid_d2,valuesGrid,case
 
 #------------------------------------------------------------------------------
-#------------------------------------------------------------------------------
-def contourPlots(grid_d1,grid_d2,valuesGrid,case):
+def make_axis_labels_new(minVal,maxVal,factor=1,considerLimits=1):
     """ Interpolates values on a grid based on the intersection of edges with a plane.
-    It outputs a .vtp and a .pkl file to be read into paraview. It returns the grid and the 
-    interpolated values at those locations (those can be processed to produce a contour plot in matplotlib)
     INPUT: G: main Graph
-           edges: edges which intersect with the plane of interst
-           intersectionCoords: coordinates intersection points
-           attribute: that should be plotted
-           filename: filename (including path) of the .vtp  and .pkl file 
-               which will be saved (without file type extension)
-           interpMethod: the interpolation method of scipy.interpolate.griddata
-               common choices: 'nearest','linear' (default),'cubic'
-           gridpoints: number of gridpoints (default = 100)
     OUTPUT: .pkl and .vtp file is written
-           grid_d1,grid_d2: grid values
-           valuesGrid: interpolated attribute values for the grid
-           case: integer to define if the normal vector is in x- (case=1),
-               y- (case=2) or in z-direction (case=3)
     """
+    minNumberOfLabelsIn=2
+    maxNumberOfLabelsIn=5
+    possibleSteps=[1.,2.,5.]
+    minVal=np.float(minVal)
+    maxVal=np.float(maxVal)
 
+    preferenceList=[]
+    for j in possibleSteps:
+        if (maxVal-minVal)/j > minNumberOfLabelsIn:
+            multiplier=0
+            while (maxVal-minVal)/(j*10**(multiplier)) >= minNumberOfLabelsIn:
+                multiplier += 1
+            stepSize=j*10**(multiplier-1)
+        elif (maxVal-minVal)/j < maxNumberOfLabelsIn:
+            multiplier=0
+            while (maxVal-minVal)/(j*10**(multiplier)) <= maxNumberOfLabelsIn:
+                multiplier += -1
+            stepSize=j*10**(multiplier+1)
+        if np.ceil((maxVal-minVal)/stepSize) <= maxNumberOfLabelsIn:
+            preferenceList.append(stepSize)
+        else:
+            preferenceList.append(np.nan)
+
+    if preferenceList.index(np.nanmin(preferenceList)) == 0:
+        stepSize=preferenceList[0]
+    elif preferenceList.index(np.nanmin(preferenceList)) == 1:
+        stepSize=preferenceList[1]
+    elif preferenceList.index(np.nanmin(preferenceList)) == 2:
+        stepSize=preferenceList[2]
+
+    start=np.floor(minVal/stepSize)*stepSize
+    labels=[]
+    currentLabel = start
+    labels.append(currentLabel)
+    #while currentLabel-maxVal < -1*finfo(float).eps: 
+    while currentLabel-maxVal < 0:
+        currentLabel += stepSize
+        labels.append(currentLabel)
+    
+    if considerLimits:
+        limits=[labels[0],labels[-1]]
+        print('Check')
+        print(labels[1]-0.5*stepSize)
+        print(minVal)
+        if minVal > labels[1]-0.5*stepSize:
+            limits[0] = labels[1]-0.5*stepSize
+            labels=labels[1::]
+        if maxVal < labels[-1]-0.5*stepSize:
+            limits[1] = labels[-1]-0.5*stepSize
+            labels=labels[0:-1]
+    else:
+        limits=[np.nan,np.nan]
+
+    if np.log10(stepSize*factor) > 0:
+        labelsString=['%.0f' %(label*factor) for label in labels]
+    elif np.floor(np.log10(stepSize*factor)) == -1:
+        decimals=-1*np.floor(np.log10(stepSize))
+        labelsString=['%.1f' %(label*factor) for label in labels]
+    elif np.floor(np.log10(stepSize*factor)) == -2:
+        decimals=-1*np.floor(np.log10(stepSize))
+        labelsString=['%.2f' %(label*factor) for label in labels]
+    elif np.floor(np.log10(stepSize*factor)) == -3:
+        decimals=-1*np.floor(np.log10(stepSize))
+        labelsString=['%.3f' %(label*factor) for label in labels]
+    else:
+        print('WARNING Not yet defined. Has to be implemented first')
+        labelsString=[]
+
+    return labels,labelsString,limits

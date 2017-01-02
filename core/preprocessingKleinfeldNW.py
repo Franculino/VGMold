@@ -20,7 +20,7 @@ from sys import stdout
 from scipy.optimize import root
 from scipy import finfo
 from scipy.integrate import quad
-import matplotlib.pyplot as plt
+import matplotlib
 import gc
 from scipy import finfo, ones, zeros
 from scipy.interpolate import griddata
@@ -888,6 +888,13 @@ def improve_capillary_diameters_by_binFitting(G):
         OUTPUT:
         """
 
+        matplotlib.rc('text', usetex = True)
+        matplotlib.rc('font', **{'family':"sans-serif"})
+        params = {'text.latex.preamble': [r'\usepackage{siunitx}',
+                r'\usepackage{sfmath}', r'\sisetup{detect-family = true}',
+                    r'\usepackage{amsmath}']}
+        plt.rcParams.update(params)
+
         G.es['diameterNew']=deepcopy(G.es['diameter'])
         eps = finfo(float).eps * 1e5
         #The diameters are fitted based on a beta distribution. The lower limit for capillary diameters = 2.5, the higher limit = 9.0
@@ -1042,7 +1049,7 @@ def improve_capillary_diameters_by_binFitting(G):
         plt.xlim([2,10])
         plt.ylim([0,0.05])
         plt.ylabel('Frequency [$\%$]',fontsize=30)
-        plt.xlabel('Diameter [mm]',fontsize=30)
+        plt.xlabel('Diameter [\si{\um}]',fontsize=30)
         plt.text(0.495,0.92,'Original' ,fontsize=20,transform=ax1.transAxes,fontweight='bold',color=[0.5,0.5,0.5])
         plt.text(0.495,0.86,'mean: %.2f' %np.mean(diameters2),fontsize=20,transform=ax1.transAxes,color=[0.5,0.5,0.5])
         plt.text(0.495,0.80,'median: %.2f' %np.median(diameters2),fontsize=20,transform=ax1.transAxes,color=[0.5,0.5,0.5])

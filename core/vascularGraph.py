@@ -588,99 +588,113 @@ class VascularGraph(Graph):
         return searchResult[1].tolist(), searchResult[0]          
                                         
     #--------------------------------------------------------------------------                         
-    #@profile
-                         
-    def assign_tissue_volume_to_edge(self):
-        """Splits an edge in two by introducing an additional vertex.
-        If RBCs are in the edge, the RBCs are distributed as well and nRBC is updated.
-        
-        
-        INPUT: eIndex: The index of the edge to be split.
-        OUTPUT: None
+    def assign_tissue_volume_to_edge(self,cubeSize=3):
+        """
         """
 
-        origin = np.mean(self.vs['r'], axis=0)[:2]
-        x=[]
-        y=[]
-        z=[]
-        distanceFromOrigin=[]
-        for v in self.vs:
-            r=v['r']
-            x.append(r[0])
-            y.append(r[1])
-            z.append(r[2])
-            distanceFromOrigin.append(r[:2] - origin)
-        
+        x=[]; y=[]; z=[]
+        for coords in self.vs['r']:
+            x.append(coords[0])
+            y.append(coords[1])
+            z.append(coords[2])
+
         self.vs['x']=x
         self.vs['y']=y
         self.vs['z']=z
+
+        zmin1=np.min(self.vs[self.vs(nkind_eq=0).indices+self.vs(nkind_eq=1).indices]['z'])
+        zmin2=np.max(self.vs[self.vs(nkind_eq=0).indices+self.vs(nkind_eq=1).indices]['z'])
+        zmin=np.mean(self.vs[self.vs(nkind_eq=0).indices+self.vs(nkind_eq=1).indices]['z'])
         xDist=np.max(x)-np.min(x)
         yDist=np.max(y)-np.min(y)
-        zDist=np.max(z)-np.min(z)
-        #xSplits=int(xDist)
-        xSplits=int(xDist/2)
-        print('Number of xSplits')
-        print(xSplits)
-        dx=xDist/xSplits
-        dy=yDist/(np.ceil(yDist/dx))
-        dz=zDist/(np.ceil(zDist/dx))
-        radiusMax=np.max(distanceFromOrigin)
+        zDist=np.max(z)-zmin
         
-        xStart=np.min(x)
-        yStart=np.min(y)
-        zStart=np.min(z)
-        xCurrent=np.min(x)
-        yCurrent=np.min(y)
-        zCurrent=np.min(z)
+        zmax=np.mean(self.vs[self.vs(degree_eq=1,z_gt=zmin+0.8*zDist).indices]['z'])
+        xmin=np.mean(self.vs[self.vs(degree_eq=1,x_lt=np.max(x)-0.75*xDist).indices]['x'])
+        ymin=np.mean(self.vs[self.vs(degree_eq=1,y_lt=np.max(y)-0.75*yDist).indices]['y'])
+        xmax=np.mean(self.vs[self.vs(degree_eq=1,x_gt=np.min(x)+0.75*xDist).indices]['x'])
+        ymax=np.mean(self.vs[self.vs(degree_eq=1,y_gt=np.min(y)+0.75*yDist).indices]['y'])
+        xDist=xmax-xmin
+        yDist=ymax-ymin
+        zDist=zmax-zmin1
 
-        t1 = ttime.time()
+        xSplits=int(np.ceil(xDist/cubeSize))
+        ySplits=int(np.ceil(yDist/cubeSize))
+        zSplits=int(np.ceil(zDist/cubeSize))
+        xStart=xmin
+        yStart=ymin
+        zStart=zmin1
+        xCurrent=xmin
+        yCurrent=ymin
+        zCurrent=zmin1
+
+        diag=np.sqrt(3)*cubeSize
+
         countVolumes=[0]*self.ecount()
         
         Kdt = kdtree.KDTree(np.concatenate(self.es['points'], 0), leafsize=10)
         cumsum = np.cumsum([len(p) for p in self.es['points']])
 
-        count =0
+        print('Number of cubes')
+        print(xSplits*ySplits*zSplits)
+        print('Number of xSplits')
+        print(xSplits)
+        print('Zmins of pial vessels')
+        print(zmin1)
+        print(zmin2)
+        count = 0
+        count2 = 0
+        count3 = 0
+        r = []
+        associatedEdge = []
         for i in range(xSplits):
-            print('number of xsplits')
-            print(i)
-            print('time taken for split')
-            print(ttime.time()-t1)
-            t1 = ttime.time()
             count += 1
-            for j in range(int(np.ceil(yDist/dx))):
+            print(count)
+            for j in range(ySplits):
                 x1=xCurrent
-                x2=xCurrent+dx
                 y1=yCurrent
-                y2=yCurrent+dy
-                distFromO = [np.linalg.norm([x1,y1] - origin),np.linalg.norm([x1,y2] - origin),np.linalg.norm([x2,y1] - origin),
-                    np.linalg.norm([x2,y2] - origin)]
-                boolDist=0
-                for k in range(4):
-                    if distFromO[k] < radiusMax:
-                        boolDist=1
-                        break
-                if boolDist:
-                    for k in range(int(np.ceil(yDist/dx))):
-                        searchResult = Kdt.query([xCurrent+0.5*dx,yCurrent+0.5*dy,zCurrent+0.5*dz])
+                for k in range(zSplits):
+                    searchResult = Kdt.query([xCurrent+0.5*cubeSize,yCurrent+0.5*cubeSize,zCurrent+0.5*cubeSize])
+                    if zCurrent >= zmin1 and zCurrent <= zmin2: #check if a vessel is lying in that cube, otherwise the cube 
+                        #should not be considered for analyzing the tissue volume supplied
+                        if searchResult[0] < 0.25*diag:
+                            EdgeIndex=np.nonzero(cumsum > searchResult[1])[0][0]
+                            countVolumes[EdgeIndex] = countVolumes[EdgeIndex]+1
+                            r.append(np.array([xCurrent+0.5*cubeSize,yCurrent+0.5*cubeSize,zCurrent+0.5*cubeSize]))
+                            count3 += 1
+                            associatedEdge.append(EdgeIndex)
+                    else:
                         EdgeIndex=np.nonzero(cumsum > searchResult[1])[0][0]
                         countVolumes[EdgeIndex] = countVolumes[EdgeIndex]+1
-                        zCurrent += dz
+                        r.append(np.array([xCurrent+0.5*cubeSize,yCurrent+0.5*cubeSize,zCurrent+0.5*cubeSize]))
+                        count3 += 1
+                        associatedEdge.append(EdgeIndex)
+                    zCurrent += cubeSize
+                    count2 += 1
                 zCurrent=zStart
-                yCurrent += dy
+                yCurrent += cubeSize
             yCurrent=yStart
-            xCurrent += dx
-            if count >= 25:
-                print('BackUp')
+            xCurrent += cubeSize
+            if count >= 15:
+                print('Cubes done')
+                print(count2)
                 self.es['countVolumes']=countVolumes
-                vgm.write_pkl(self,'2nd08_rr_1Comp_degMax4_improvedAVLabeling_improvedDiameter_reducedDeg2_2_withTissueVolume_BackUp.pkl')
+                vgm.write_pkl(self,'G_averaged_withMainDA_125_withTissueVol_'+str(count2)+'.pkl')
                 count = 0
 
-        self.es['tissueVolume']=np.array(self.es['countVolumes'])*dx*dy*dz
-        vgm.write_pkl(self,'2nd08_rr_1Comp_degMax4_improvedAVLabeling_improvedDiameter_reducedDeg2_2_withTissueVolume.pkl')
+        print('Total number of cubes')
+        print(count3)
 
+        self.es['tissueVolume']=np.array(self.es['countVolumes'])*cubeSize**3
+        self.es['tissueVolumePerLength']=np.array(self.es['tissueVolume'])/np.array(self.es['length'])
+        self.es['tissueRadiusPerLength']=np.sqrt(np.array(self.es['tissueVolumePerLength'])/np.pi)
+        vgm.write_pkl(self,'G_averaged_withMainDA_125_withTissueVol.pkl')
 
-
-
+        tissueG=vgm.VascularGraph(len(r))
+        tissueG.vs['r'] = r
+        tissueG.vs['associatedEdge'] = associatedEdge
+        vgm.write_pkl(tissueG,'GTissue_averaged_withMainDA_125.pkl')
+        #vgm.write_vtp(tissueG,'GTissue_averaged_withMainDA_125.vtp',False)
 
     #--------------------------------------------------------------------------                         
                          
@@ -1628,132 +1642,28 @@ class VascularGraph(Graph):
 
     #--------------------------------------------------------------------------
     
-    def get_edges_in_boundingBox(self,xCoords=(6750,7400),yCoords=(6900,7500),zCoords=(850,1100),outputName='GBox.vtp'):
+    def get_edges_in_boundingBox(self,xCoordsBox=[6750,7400],yCoordsBox=[6900,7500],zCoordsBox=[850,1100]):
         """ Outputs edges belonging to a given box. 
         INPUT: xCoords = xmin,xmax
                yCoords = ymin,ymax
                zCoords = zmin,zmax
-        OUTPUT: allEdges, borderEdgesMain, internalEdges
-                and an output pickle file called: GBox.pkl
+        OUTPUT: allEdges:
         """
-        vertices=[]
-        vertices2=[]
-        for i in range(self.vcount()):
-            r=self.vs['r'][i]
-            if r[0] >= xCoords[0] and r[0] <= xCoords[1]:
-                if r[1] >= yCoords[0] and r[1] <= yCoords[1]:
-                    if r[2] >= zCoords[0] and r[2] <= zCoords[1]:
-                        vertices.append(i)
-            if r[0] >= xCoords[0]-(xCoords[1]-xCoords[0]) and r[0] <= xCoords[1]+(xCoords[1]-xCoords[0]):
-                if r[1] >= yCoords[0]-(yCoords[1]-yCoords[0]) and r[1] <= yCoords[1]+(yCoords[1]-yCoords[0]):
-                    if r[2] >= zCoords[0]-(zCoords[1]-zCoords[0]) and r[2] <= zCoords[1]+(zCoords[1]-zCoords[0]):
-                        vertices2.append(i)
 
-        if vertices == []:
-            allEdges=[]
-            borderEdgesMain=[]
-            internalEdges=[]
-        else:
-            edges=[]
-            for i in vertices:
-                for j in self.adjacent(i):
-                    edges.append(j)
-            edges=np.unique(edges)
-            edges=edges.tolist()
-    
-            edges2=[]
-            for i in vertices2:
-                for j in self.adjacent(i):
-                    edges2.append(j)
-            edges2=np.unique(edges2)
-            edges2=edges2.tolist()
-            for i in edges:
-                if i in edges2:
-                    edges2.remove(i)
-    
-            for i in edges2:
-                for j in self.es['points'][i]:
-                    if j[0] >= xCoords[0] and j[0] <= xCoords[1]:
-                        if j[1] >= yCoords[0] and j[1] <= yCoords[1]:
-                            if j[2] >= zCoords[0] and j[2] <= zCoords[1]:
-                                edges.append(i)
-                                break
-            borderVertices=[]
-            borderEdgesMain=[]
-            for i in edges:
-                e=self.es[int(i)]
-                if e.source not in vertices:
-                    vertices.append(e.source)
-                    borderVertices.append(e.source)
-                    borderEdgesMain.append(i)
-                if e.target not in vertices:
-                    vertices.append(e.target)
-                    borderVertices.append(e.target)
-                    borderEdgesMain.append(i)
-    
-            borderEdgesMain=np.unique(np.array(borderEdgesMain))
-    
-            r=[]
-            vertices2=np.sort(vertices)
-            for i in vertices2:
-                r.append(self.vs['r'][i])
-            GBox=vgm.VascularGraph(len(vertices))
-            GBox.vs['r']=r
-            GBox.vs['indexMain']=vertices2
-            for j in edges:
-                e=self.es[int(j)]
-                for i in range(GBox.vcount()):
-                    if GBox.vs['indexMain'][i] == e.source:
-                        vertex1=i
-                    if GBox.vs['indexMain'][i] == e.target:
-                        vertex2=i
-                GBox.add_edge(vertex1,vertex2)
-    
-            for j in range(len(edges)):
-                GBox.es[j]['points']=self.es[int(edges[j])]['points']
-                GBox.es[j]['lengths']=self.es[int(edges[j])]['lengths']
-                GBox.es[j]['length']=self.es[int(edges[j])]['length']
-                GBox.es[j]['diameters']=self.es[int(edges[j])]['diameters']
-                GBox.es[j]['lengths2']=self.es[int(edges[j])]['lengths2']
-                GBox.es[j]['diameters2']=self.es[int(edges[j])]['diameters2']
-                GBox.es[j]['diameter']=self.es[int(edges[j])]['diameter']
-                if 'flow' in self.es.attribute_names():
-                    GBox.es[j]['flow']=self.es[int(edges[j])]['flow']
-                if 'htt' in self.es.attribute_names():
-                    GBox.es[j]['htt']=self.es[int(edges[j])]['htt']
-    
-            borderEdges=[]
-            for i in borderVertices:
-                for j in range(GBox.vcount()):
-                    if GBox.vs['indexMain'][j] == i:
-                        for k in GBox.adjacent(j):
-                            borderEdges.append(k)
-    
-            GBox.es['borderEdges']=[0]*GBox.ecount()
-            for i in borderEdges:
-                GBox.es[i]['borderEdges']=1.
-    
-            vgm.write_pkl(GBox,outputName+'.pkl')
-            vgm.write_vtp(GBox,outputName+'.vtp',True)
-    
-            #graphDict={}
-            #graphDict['vertexCoords']=GBox.vs['r']
-            #edgeTuples=[]
-            #for i in range(GBox.ecount()):
-            #    edgeTuples.append(GBox.es[i].tuple)
-            #graphDict['edgeTuples']=edgeTuples
-            #graphDict['globalEIndex']=edges
-            #graphDict['points']=GBox.es['points']
-            #graphDict['lengths']=GBox.es['lengths2']
-            #graphDict['diameters']=GBox.es['diameters2']
-            #vgm.write_pkl(graphDict,'graphDict.pkl')
-    
-            allEdges=edges
-            internalEdges=deepcopy(edges)
-            for i in borderEdgesMain:
-                internalEdges.remove(i)
-    
-        return  allEdges, borderEdgesMain, internalEdges
+        coordsPoints = np.concatenate(self.es['points'], 0)
+        cumsum = np.cumsum([len(p) for p in self.es['points']])
+        edges=[[e.index]*len(e['points']) for e in self.es]
+        associatedEdges = np.concatenate(edges, 0)
+        
+        edgesInBox=[]
+        for coords,edge in zip(coordsPoints,associatedEdges):
+            if edge not in edgesInBox:
+                if coords[0] >= xCoordsBox[0] and coords[0] <= xCoordsBox[1]:
+                    if coords[1] >= yCoordsBox[0] and coords[1] <= yCoordsBox[1]:
+                        if coords[2] >= zCoordsBox[0] and coords[2] <= zCoordsBox[1]:
+                            edgesInBox.append(edge)
+         
+        return  edgesInBox
 
     #--------------------------------------------------------------------------
 

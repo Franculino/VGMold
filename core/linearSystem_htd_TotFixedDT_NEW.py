@@ -857,7 +857,7 @@ class LinearSystemHtdTotFixedDT_NEW(object):
         G =  self._G
 
     #--------------------------------------------------------------------------
-
+    #@profile
     def _update_eff_resistance_and_LS(self, vertex = None):
         """Constructs the linear system A x = b where the matrix A contains the
         conductance information of the vascular graph, the vector b specifies
@@ -888,22 +888,19 @@ class LinearSystemHtdTotFixedDT_NEW(object):
         htt2htd = P.tube_to_discharge_hematocrit
         nurel = P.relative_apparent_blood_viscosity
 
+        #TODO for the av network len(vertex) is always around 2000 --> does it really make sense to not always update the whole matrix?
         if vertex is None:
             vertexList = xrange(G.vcount())
             edgeList = xrange(G.ecount())
         else:
-            vertexList = []
+            neighborsList = []
             edgeList = []
             for i in vertex:
-                vList = np.concatenate([[i],
-                     G.neighbors(i)]).tolist()
-                eList = G.adjacent(i)
-                vertexList = np.concatenate([vertexList,vList]).tolist()
-                edgeList = np.concatenate([edgeList,eList]).tolist()
+                neighborsList = neighborsList + G.neighbors(i)
+                edgeList = edgeList + G.incident(i)
+            vertexList=np.concatenate([vertex,np.array(neighborsList)])
             vertexList = np.unique(vertexList).tolist()
             edgeList = np.unique(edgeList).tolist()
-            edgeList = [int(i) for i in edgeList]
-            vertexList = [int(i) for i in vertexList]
         dischargeHt = [min(htt2htd(e, d, invivo), 1.0) for e,d in zip(G.es[edgeList]['htt'],G.es[edgeList]['diameter'])]
         G.es[edgeList]['effResistance'] = [ res * nurel(max(d,4.0), min(dHt,0.6),invivo) for res,dHt,d in zip(G.es[edgeList]['resistance'], \
             dischargeHt,G.es[edgeList]['diameter'])]
@@ -975,6 +972,7 @@ class LinearSystemHtdTotFixedDT_NEW(object):
         sortedE = [i[1] for i in sortedE]
         convEdges = [0]*G.ecount()
         httBCDoneEdges = [0]*G.ecount()
+        nRBCList=np.array(G.es['nRBC'])
         edgeUpdate = []   #Edges where the number of RBCs changed --> need to be updated
         vertexUpdate = [] #Vertices where the number of RBCs changed in adjacent edges --> need to be updated
         #SECOND step go through all edges from smallest to highest pressure and move RBCs
@@ -986,7 +984,7 @@ class LinearSystemHtdTotFixedDT_NEW(object):
             vi = e['target'] if sign == 1 else e['source']
             vertex = G.vs[vi]
             edgesInvolved = G.incident(vi)
-            nRBCSumBefore = np.sum(G.es[edgesInvolved]['nRBC'])
+            nRBCSumBefore = np.sum(nRBCList[edgesInvolved])
             overshootsNo = 0 #Reset - Number of overshoots acutally taking place (considers possible number of bifurcation events)
             #TODO what is the difference between noFlow vertices and noFlow edges? are both checks necessary
             boolHttEdge, boolHttEdge2, boolHttEdge3 = 0,0,0
@@ -1611,8 +1609,8 @@ class LinearSystemHtdTotFixedDT_NEW(object):
             if noBifEvents != 0 or boolHttEdge == 1 or boolHttEdge2 == 1 or boolHttEdge3 == 1:
                 nRBCSumAfter = 0
                 for i in edgesInvolved:
-                    G.es[i]['nRBC'] = len(G.es[i]['rRBC'])
-                    nRBCSumAfter += G.es[i]['nRBC']
+                    nRBCList[i] = len(G.es[i]['rRBC'])
+                    nRBCSumAfter += nRBCList[i]
                 if nRBCSumBefore != nRBCSumAfter:
                     if vertex['vType'] == 2:
                         if nRBCSumAfter + noBifEvents != nRBCSumBefore:
@@ -1687,6 +1685,7 @@ class LinearSystemHtdTotFixedDT_NEW(object):
             self._rbcMoveAll.append(rbcMoved)
         self._G = G
     #--------------------------------------------------------------------------
+    #@profile
     def _initial_propagate_and_compute_bifRBCsIndex(self,e,sign):
         """ Calculates bifRBCsIndex
         INPUT: e: igraph edge where the RBCs are propagated and for which bifRBCsIndex

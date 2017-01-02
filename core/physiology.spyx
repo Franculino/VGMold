@@ -465,7 +465,6 @@ cdef class Physiology(object):
         if discharge_hematocrit == 1.0:
             discharge_hematocrit = 0.99
                                    
- 
         # The fit function assumes diameters in [micron]. Conversion from 
         # default units is performed as required.
         sf = self._sf['um -> du']
