@@ -20,7 +20,6 @@ from linearSystem_htd_TotFixedDT_StempRBCs_AvgBox import *
 from linearSystem_htd_TotFixedDT_nRBCint import *
 from preprocessingKleinfeldNW import *
 from hierarchicalApproach import *
-from linearSystem_htd_TotFixedDT_betaTeta import *
 from linearSystem_htd_TotFixedDT_noBifRule import *
 from linearSystem_htd_TotFixedDT_passiveTracers import *
 
@@ -46,6 +45,5 @@ import linearSystem_htd_TotFixedDT_StempRBCs_AvgBox
 import linearSystem_htd_TotFixedDT_nRBCint
 import preprocessingKleinfeldNW
 import hierarchicalApproach
-import linearSystem_htd_TotFixedDT_betaTeta
 import linearSystem_htd_TotFixedDT_noBifRule
 import linearSystem_htd_TotFixedDT_passiveTracers
