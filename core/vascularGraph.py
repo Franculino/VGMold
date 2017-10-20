@@ -10,6 +10,7 @@ import time as ttime
 from scipy import finfo
 import scipy as sp
 from sys import stdout
+from scipy import interpolate
 
 import g_math
 import units
@@ -221,7 +222,7 @@ class VascularGraph(Graph):
                         break
                 if not boolKind:
                     distances.append(nearest[0][0])
-                    vertices.append(nearest[1][0])
+                    vertice.append(nearest[1][0])
   
         eps = finfo(float).eps * 1e4
         distances=np.array(distances)
@@ -592,15 +593,14 @@ class VascularGraph(Graph):
         """
         """
 
+        cubeSizeFactor=5
         x=[]; y=[]; z=[]
         for coords in self.vs['r']:
             x.append(coords[0])
             y.append(coords[1])
             z.append(coords[2])
 
-        self.vs['x']=x
-        self.vs['y']=y
-        self.vs['z']=z
+        self.vs['x']=x; self.vs['y']=y; self.vs['z']=z
 
         zmin1=np.min(self.vs[self.vs(nkind_eq=0).indices+self.vs(nkind_eq=1).indices]['z'])
         zmin2=np.max(self.vs[self.vs(nkind_eq=0).indices+self.vs(nkind_eq=1).indices]['z'])
@@ -621,43 +621,72 @@ class VascularGraph(Graph):
         xSplits=int(np.ceil(xDist/cubeSize))
         ySplits=int(np.ceil(yDist/cubeSize))
         zSplits=int(np.ceil(zDist/cubeSize))
-        xStart=xmin
-        yStart=ymin
-        zStart=zmin1
-        xCurrent=xmin
-        yCurrent=ymin
-        zCurrent=zmin1
-
+        xStart=xmin; yStart=ymin; zStart=zmin1
+        xCurrent=xmin; yCurrent=ymin; zCurrent=zmin1
         diag=np.sqrt(3)*cubeSize
-
+        diag2=np.sqrt(2)*cubeSize*cubeSizeFactor
         countVolumes=[0]*self.ecount()
         
         Kdt = kdtree.KDTree(np.concatenate(self.es['points'], 0), leafsize=10)
         cumsum = np.cumsum([len(p) for p in self.es['points']])
 
+        #Find zValues where the tissue shall start
+        xSplits2=int(np.ceil(xDist/(cubeSize*cubeSizeFactor)))
+        ySplits2=int(np.ceil(yDist/(cubeSize*cubeSizeFactor)))
+        zStartMesh=[]
+        for i in range(ySplits2):
+            zAll=[]
+            for j in range(xSplits2):
+                x1=xCurrent
+                y1=yCurrent
+                zVals=[]
+                for k in range(zSplits):
+                    searchResult = Kdt.query([xCurrent+0.5*cubeSize*cubeSizeFactor,yCurrent+0.5*cubeSize*cubeSizeFactor,zCurrent+0.5*cubeSize])
+                    if zCurrent >= zmin1 and zCurrent <= zmin2: #check if a vessel is lying in that cube, otherwise the cube 
+                        #should not be considered for analyzing the tissue volume supplied
+                        if searchResult[0] < 0.5*diag2:
+                            zVals.append(zCurrent)
+                    else:
+                        break
+                    zCurrent += cubeSize
+                if zVals == []:
+                    zVals.append(zmin2)
+                zAll.append(np.min(zVals))
+                zCurrent=zStart
+                xCurrent += cubeSize*cubeSizeFactor
+            zStartMesh.append(np.array(zAll))
+            xCurrent=xStart
+            yCurrent += cubeSize*cubeSizeFactor
+
+        xx,yy=np.meshgrid(np.arange(xmin,xmax,cubeSize*cubeSizeFactor),np.arange(ymin,ymax,cubeSize*cubeSizeFactor))
+        f=interpolate.interp2d(xx,yy,zStartMesh,kind='linear')
+        xValsFine=np.arange(xmin,xmax,cubeSize)
+        yValsFine=np.arange(ymin,ymax,cubeSize)
+        zStartNew=f(xValsFine,yValsFine)
+        zStartNewList=np.concatenate(zStartNew)
+
         print('Number of cubes')
         print(xSplits*ySplits*zSplits)
         print('Number of xSplits')
         print(xSplits)
-        print('Zmins of pial vessels')
-        print(zmin1)
-        print(zmin2)
+        print('Number of Values in zStartList')
+        print(len(zStartNewList))
+        xStart=xmin; yStart=ymin; zStart=zmin1
+        xCurrent=xmin; yCurrent=ymin; zCurrent=zmin1
         count = 0
         count2 = 0
         count3 = 0
+        count4 = 0
         r = []
         associatedEdge = []
-        for i in range(xSplits):
+        for i in range(ySplits):
             count += 1
             print(count)
-            for j in range(ySplits):
-                x1=xCurrent
-                y1=yCurrent
+            for j in range(xSplits):
                 for k in range(zSplits):
                     searchResult = Kdt.query([xCurrent+0.5*cubeSize,yCurrent+0.5*cubeSize,zCurrent+0.5*cubeSize])
                     if zCurrent >= zmin1 and zCurrent <= zmin2: #check if a vessel is lying in that cube, otherwise the cube 
-                        #should not be considered for analyzing the tissue volume supplied
-                        if searchResult[0] < 0.25*diag:
+                        if zCurrent > zStartNewList[count4]:
                             EdgeIndex=np.nonzero(cumsum > searchResult[1])[0][0]
                             countVolumes[EdgeIndex] = countVolumes[EdgeIndex]+1
                             r.append(np.array([xCurrent+0.5*cubeSize,yCurrent+0.5*cubeSize,zCurrent+0.5*cubeSize]))
@@ -671,10 +700,11 @@ class VascularGraph(Graph):
                         associatedEdge.append(EdgeIndex)
                     zCurrent += cubeSize
                     count2 += 1
+                count4 += 1
                 zCurrent=zStart
-                yCurrent += cubeSize
-            yCurrent=yStart
-            xCurrent += cubeSize
+                xCurrent += cubeSize
+            xCurrent=xStart
+            yCurrent += cubeSize
             if count >= 15:
                 print('Cubes done')
                 print(count2)
@@ -694,7 +724,7 @@ class VascularGraph(Graph):
         tissueG.vs['r'] = r
         tissueG.vs['associatedEdge'] = associatedEdge
         vgm.write_pkl(tissueG,'GTissue_averaged_withMainDA_125.pkl')
-        #vgm.write_vtp(tissueG,'GTissue_averaged_withMainDA_125.vtp',False)
+        vgm.write_vtp(tissueG,'GTissue_averaged_withMainDA_125.vtp',False)
 
     #--------------------------------------------------------------------------                         
                          
@@ -2737,5 +2767,25 @@ class VascularGraph(Graph):
         self['countAssignMedian']=countAssignMedian
         self.es['diameter']=deepcopy(self.es['effDiam'])
         del(self.es['effDiam'])
-        
+#--------------------------------------------------------------------
+    def save_graph_as_dict(self, edgeAttr=['flow','length','diameter','nRBC','htt','httBC'], vertexAttr=['pressure','pBC']):
+        """ Writes two pkl files (dictonaries) with all the attributes of the graph. file 1: vertices.pkl; file 2: edges.pkl
+        INPUT: edgeAttr: list of edgeAttr to be outputed. if empty only the tuple list is written
+                vertexAttr: list of vertexAttr to be outputed. if empty only coordinates are written
+        OUTPUT: two .pkl files
+        """
+
+        verticesDict={}
+        verticesDict['coords']=self.vs['r']
+        for attr in vertexAttr:
+            verticesDict[attr]=self.vs[attr]
+
+        edgesDict={}
+        tuples=[e.tuple for e in self.es]
+        edgesDict['tuple']=tuples
+        for attr in edgeAttr:
+            edgesDict[attr]=self.es[attr]
+
+        vgm.write_pkl(verticesDict,'verticesDict.pkl')
+        vgm.write_pkl(edgesDict,'edgesDict.pkl')
 

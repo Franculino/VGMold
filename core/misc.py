@@ -570,10 +570,15 @@ def planePlots_paraview(G,edges,intersectionCoords,attribute,filename,interpMeth
     return grid_d1,grid_d2,valuesGrid,case
 
 #------------------------------------------------------------------------------
-def make_axis_labels_new(minVal,maxVal,factor=1,considerLimits=1):
-    """ Interpolates values on a grid based on the intersection of edges with a plane.
-    INPUT: G: main Graph
-    OUTPUT: .pkl and .vtp file is written
+def make_axis_labels(minVal,maxVal,factor=1,considerLimits=1):
+    """ Creates the labels for an axis. based on the min and max value provided.
+    INPUT: minVal: minimum Value of the data
+            maxVal: maximum Value of the date
+            factor: factor between the actual values and the strings provided 
+                (e.g factor = 0.001 --> value 1000 --> string '1.0')
+            considerLimits: bool if the labels should be trimmed at the lower/upper bound
+    OUTPUT: labels,labelsString: list with the location of the labels and the according strings
+            limits: lower and upper limit for the axis
     """
     minNumberOfLabelsIn=2
     maxNumberOfLabelsIn=5
@@ -616,9 +621,6 @@ def make_axis_labels_new(minVal,maxVal,factor=1,considerLimits=1):
     
     if considerLimits:
         limits=[labels[0],labels[-1]]
-        print('Check')
-        print(labels[1]-0.5*stepSize)
-        print(minVal)
         if minVal > labels[1]-0.5*stepSize:
             limits[0] = labels[1]-0.5*stepSize
             labels=labels[1::]
@@ -626,10 +628,15 @@ def make_axis_labels_new(minVal,maxVal,factor=1,considerLimits=1):
             limits[1] = labels[-1]-0.5*stepSize
             labels=labels[0:-1]
     else:
-        limits=[np.nan,np.nan]
+        limits=[labels[0],labels[-1]]
+        #limits=[np.nan,np.nan]
 
-    if np.log10(stepSize*factor) > 0:
+    if np.floor(np.log10(stepSize*factor)) == 0 or np.floor(np.log10(stepSize*factor)) == 1 or np.floor(np.log10(stepSize*factor)) == 2 \
+        or np.floor(np.log10(stepSize*factor)) == 3 or np.floor(np.log10(stepSize*factor)) == 4:
         labelsString=['%.0f' %(label*factor) for label in labels]
+    elif np.floor(np.log10(stepSize*factor)) == 5 or np.floor(np.log10(stepSize*factor)) == 6 or np.floor(np.log10(stepSize*factor)) == 7 \
+        or np.floor(np.log10(stepSize*factor)) == 8 or np.floor(np.log10(stepSize*factor)) == 9:
+        labelsString=['%.1e' %(label*factor) for label in labels]
     elif np.floor(np.log10(stepSize*factor)) == -1:
         decimals=-1*np.floor(np.log10(stepSize))
         labelsString=['%.1f' %(label*factor) for label in labels]
@@ -641,6 +648,89 @@ def make_axis_labels_new(minVal,maxVal,factor=1,considerLimits=1):
         labelsString=['%.3f' %(label*factor) for label in labels]
     else:
         print('WARNING Not yet defined. Has to be implemented first')
+        print(np.log10(stepSize*factor))
         labelsString=[]
 
     return labels,labelsString,limits
+#------------------------------------------------------------------------------
+def assign_edges_to_layers(G,numberOfLayers=5,layerThickness=200,nkind=None):
+    """ Creates the labels for an axis. based on the min and max value provided.
+    INPUT: minVal: minimum Value of the data
+            maxVal: maximum Value of the date
+            factor: factor between the actual values and the strings provided 
+                (e.g factor = 0.001 --> value 1000 --> string '1.0')
+            considerLimits: bool if the labels should be trimmed at the lower/upper bound
+    OUTPUT: labels,labelsString: list with the location of the labels and the according strings
+            limits: lower and upper limit for the axis
+    """
+
+    layers=[]
+    for i in range(numberOfLayers):
+        layers.append([])
+    
+    pointsAll = np.concatenate(G.es['points'], 0)
+    pointsCumSum = np.cumsum([len(p) for p in G.es['points']])
+    for i,p in enumerate(pointsAll):
+        edgeIndex=np.nonzero(pointsCumSum > i)[0][0]
+        if nkind == None:
+            layerIndex=int(np.floor(p[2]/layerThickness))
+            if layerIndex < 0:
+                layerIndex = 0
+            elif layerIndex > numberOfLayers-1:
+                layerIndex = numberOfLayers-1
+            layers[layerIndex].append(edgeIndex)    
+        else:
+            if G.es[edgeIndex]['nkind']==nkind:
+                layerIndex=int(np.floor(p[2]/layerThickness))
+                if layerIndex < 0:
+                    layerIndex = 0
+                elif layerIndex > numberOfLayers-1:
+                    layerIndex = numberOfLayers-1
+                layers[layerIndex].append(edgeIndex)    
+    
+    layersNew=[]
+    for i in range(numberOfLayers):
+        layersNew.append(np.unique(layers[i]).tolist())
+
+    return layersNew
+
+#------------------------------------------------------------------------------
+def assign_edges_to_layers_RBCpathsBased(G,numberOfLayers=5,layerThickness=200,nkind=None):
+    """ Creates the labels for an axis. based on the min and max value provided.
+    INPUT: minVal: minimum Value of the data
+            maxVal: maximum Value of the date
+            factor: factor between the actual values and the strings provided 
+                (e.g factor = 0.001 --> value 1000 --> string '1.0')
+            considerLimits: bool if the labels should be trimmed at the lower/upper bound
+    OUTPUT: labels,labelsString: list with the location of the labels and the according strings
+            limits: lower and upper limit for the axis
+    """
+
+    layers=[]
+    for i in range(numberOfLayers):
+        layers.append([])
+   
+    for e in G.es:
+        if nkind == None:
+            for v in e['capStarts']:
+                layerIndex=int(np.floor(G.vs['r'][v][2]/layerThickness))
+                if layerIndex < 0:
+                    layerIndex = 0
+                elif layerIndex > numberOfLayers-1:
+                    layerIndex = numberOfLayers-1
+                layers[layerIndex].append(edgeIndex)    
+        else:
+            for v in e['capStarts']:
+                if G.es[edgeIndex]['nkind']==nkind:
+                    layerIndex=int(np.floor(G.vs['r'][v][2]/layerThickness))
+                    if layerIndex < 0:
+                        layerIndex = 0
+                    elif layerIndex > numberOfLayers-1:
+                        layerIndex = numberOfLayers-1
+                    layers[layerIndex].append(edgeIndex)    
+
+    layersNew=[]
+    for i in range(numberOfLayers):
+        layersNew.append(np.unique(layers[i]).tolist())
+
+    return layersNew
